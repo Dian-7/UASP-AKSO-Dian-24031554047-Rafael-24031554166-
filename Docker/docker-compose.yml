@@ -1,0 +1,99 @@
+version: '3.8'  # Versi Docker Compose
+name: DianRafaelProject
+
+x-logging: &default-logging  # Definisi konfigurasi logging
+  driver: json-file  # Jenis driver
+  options:
+    max-size: "10m"  # Batas ukuran maksimum file log
+    max-file: "3"  # Batas jumlah file log
+
+services:
+  nginx:
+    image: nginx:latest  # versi nginx
+    container_name: nginx-web-server  # nama container Nginx
+    ports:
+      - "80:80"  # Port eksternal 80 mengarah ke port internal 80 dalam container
+    volumes:
+      - ./nginx/html:/usr/share/nginx/html  # Mapping volume untuk file HTML
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf  # Mapping file konfigurasi Nginx
+      - nginx-logs:/var/log/nginx  # Volume untuk menyimpan log Nginx
+    networks:
+      - web-network  # Menetapkan jaringan yang digunakan untuk container Nginx
+    restart: always  # Mengatur untuk merestart container jika terjadi kegagalan
+    depends_on:
+      - mysql  # Memastikan Nginx hanya berjalan setelah MySQL siap
+    logging: *default-logging  # Menggunakan konfigurasi logging yang didefinisikan sebelumnya
+    env_file:
+      - ./nginx/.env  # Menggunakan file .env untuk konfigurasi lingkungan Nginx
+    healthcheck:  # Konfigurasi pengecekan kesehatan
+      test: ["CMD", "curl", "-f", "http://localhost"]  # Perintah untuk memeriksa kesehatan Nginx melalui curl
+      interval: 30s  # Interval pengecekan kesehatan setiap 30 detik
+      timeout: 30s  # Waktu tunggu untuk mendapatkan respons
+      retries: 3  # Jumlah percobaan sebelum dianggap gagal
+    labels:  # Menambahkan label untuk mempermudah pengelompokan atau penandaan
+      - "project=data-science"
+      - "service=webserver"
+    deploy:  # Konfigurasi untuk pengaturan sumber daya pada Docker Swarm (deploy mode)
+      resources:
+        limits:
+          cpus: "0.50"  # Membatasi penggunaan CPU hingga 0.50 CPU
+          memory: 256M  # Membatasi penggunaan memori hingga 256MB
+
+  mysql:
+    image: mysql:8.0  #versi 8.0
+    container_name: mysql-database  # Nama container database MySQL
+    environment:  # Variabel yang digunakan untuk mengkonfigurasi MySQL
+      MYSQL_ROOT_PASSWORD: rootpassword  # Password untuk user root MySQL
+      MYSQL_DATABASE: mydatabase  # Nama database default
+      MYSQL_USER: datauser  # User database MySQL
+      MYSQL_PASSWORD: datapassword  # Password untuk user MySQL
+      TZ: Asia/Jakarta  # Menetapkan zona waktu untuk container MySQL
+    ports:
+      - "3307:3306"  # Pemetaan port untuk MySQL (3307 di host mengarah ke 3306 di container)
+    volumes:
+      - mysql-data:/var/lib/mysql  # Volume untuk menyimpan data database secara persisten
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql  # File SQL untuk menginisialisasi database
+      - mysql-backup:/backup  # Volume untuk menyimpan backup database
+    networks:
+      - web-network  # Menetapkan jaringan yang digunakan untuk container MySQL
+    restart: always  # Mengatur untuk merestart container MySQL jika terjadi kegagalan
+    logging: *default-logging  # Menggunakan konfigurasi logging yang telah didefinisikan sebelumnya
+    env_file:
+      - ./mysql/.env  # Menggunakan file .env untuk konfigurasi lingkungan MySQL
+    healthcheck:  # Konfigurasi pengecekan kesehatan untuk MySQL
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]  # Memeriksa kesehatan MySQL melalui ping
+      interval: 30s  # Interval pengecekan kesehatan setiap 30 detik
+      timeout: 10s  # Waktu tunggu untuk mendapatkan respons
+      retries: 3  # Jumlah percobaan sebelum dianggap gagal
+    labels:  # Menambahkan label untuk MySQL
+      - "project=data-science"
+      - "service=database"
+    configs:  # Menggunakan konfigurasi eksternal untuk MySQL
+      - source: mysql-config  # Mengambil file konfigurasi yang ditentukan
+        target: /etc/mysql/conf.d/custom.cnf  # Menyimpan konfigurasi ke dalam direktori konfigurasi MySQL
+    deploy:  # Konfigurasi untuk pengaturan sumber daya pada Docker Swarm (deploy mode)
+      resources:
+        limits:
+          cpus: '1.0'  # Membatasi penggunaan CPU hingga 1.0 CPU
+          memory: 512M  # Membatasi penggunaan memori hingga 512MB
+    command:  # Perintah tambahan yang dijalankan pada saat container berjalan
+      - --character-set-server=utf8mb4  # Menetapkan karakter set untuk server MySQL
+      - --collation-server=utf8mb4_unicode_ci  # Menetapkan pengurutan untuk karakter set
+
+networks:
+  web-network:
+    driver: bridge  # Menggunakan jaringan bridge untuk komunikasi antar container
+    driver_opts:
+      com.docker.network.driver.mtu: 1450  # Menetapkan MTU untuk jaringan
+
+volumes:
+  nginx-logs:
+    driver: local  # Menetapkan driver lokal untuk volume log Nginx
+  mysql-data:
+    driver: local  # Menetapkan driver lokal untuk volume data MySQL
+  mysql-backup:
+    driver: local  # Menetapkan driver lokal untuk volume backup MySQL
+
+configs:
+  mysql-config:
+    file: ./mysql/custom.cnf  # Menggunakan file konfigurasi eksternal untuk MySQL
